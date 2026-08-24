@@ -1,17 +1,12 @@
 /* ==========================================================================
    ตำรา ๑๐๐ ปี eBooks — script.js
-   Handles: book data, rendering, search, category filtering, and the
-   book-detail modal. Written so new books or a real API can be dropped
-   into BOOKS / fetchBooks() without touching the render logic.
+   Handles: book data from Google Sheets CSV, rendering, search, category
+   filtering, and the book-detail modal.
    ========================================================================== */
 
 (function () {
   'use strict';
 
-  /* ------------------------------------------------------------------------
-     1. Category list — order defines both the filter pills and the
-        cover-art pattern (cover-cat-0 ... cover-cat-9) used per category.
-     ------------------------------------------------------------------------ */
   const CATEGORIES = [
     'การศึกษาและจิตวิทยา',
     'ศิลปะและวัฒนธรรม',
@@ -25,310 +20,28 @@
     'วิทยาศาสตร์ สุขภาพ และสิ่งแวดล้อม'
   ];
 
-  /* ------------------------------------------------------------------------
-     1b. Google Sheet data source
-        ------------------------------------------------------------------
-        Books are loaded live from a Google Sheet via the Sheets API v4
-        (read-only, using an API key — no OAuth needed since the sheet is
-        shared as "Anyone with the link can view").
+  const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/1hfqwP3KlakzE8HDovKVRzRy0y2j2on79QbkfwNfAD18/export?format=csv';
 
-        Required sheet columns (any order, header row required):
-        title | author | faculty | year | page | description | category |
-        tags | cover_url | pdf_url | fulltext_url
-
-        NOTE ON THE API KEY: this key is visible to anyone who views the
-        page source, which is normal for browser-side Google API calls —
-        just make sure it's restricted in Google Cloud Console to
-        (a) the Sheets API only, and (b) your site's domain as an HTTP
-        referrer, so it can't be reused elsewhere.
-     ------------------------------------------------------------------------ */
-  const SHEET_CONFIG = {
-    apiKey: 'AIzaSyBZnuU0hL6RKNzRWXW7nozBwofvmrZqYyc',
-    spreadsheetId: '1hfqwP3KlakzE8HDovKVRzRy0y2j2on79QbkfwNfAD18',
-    sheetName: 'Sheet1',   // <-- change to match your tab name if different
-    range: 'A:K'
-  };
-
-  /* ------------------------------------------------------------------------
-     2. Fallback book data
-        ------------------------------------------------------------------
-        Shown only if the Google Sheet can't be reached (offline, wrong
-        sharing permission, API not enabled, etc.) so the page still works
-        for a demo. Once the sheet loads successfully this is unused.
-     ------------------------------------------------------------------------ */
-  const FALLBACK_BOOKS = [
-    {
-      id: 1,
-      title: "จิตวิญญาณความเป็นครู: Teachers' Spirituality",
-      author: "จตุรงค์ ธนะสีลังกูร",
-      year: "2567",
-      pages: "242",
-      category: "การศึกษาและจิตวิทยา",
-      image: "",
-      ebookLink: "#",
-      fulltextLink: "#",
-      description: [
-        "หนังสือเล่มนี้ว่าด้วยมิติทางจิตวิญญาณของวิชาชีพครู สำรวจแรงบันดาลใจและคุณค่าภายในที่หล่อหลอมความเป็นครูให้ลึกซึ้งกว่าการถ่ายทอดความรู้ในตำรา",
-        "ผู้เขียนถ่ายทอดผ่านกรณีศึกษาและประสบการณ์ตรงในห้องเรียน ชวนผู้อ่านทบทวนบทบาทของครูในฐานะผู้บ่มเพาะทั้งปัญญาและจิตใจของผู้เรียน"
-      ]
-    },
-    {
-      id: 2,
-      title: "ศิลปะพื้นถิ่นอีสาน: จากแผ่นดินสู่งานช่าง",
-      author: "ปิยะดา วงศ์สุริยา",
-      year: "2566",
-      pages: "198",
-      category: "ศิลปะและวัฒนธรรม",
-      image: "",
-      ebookLink: "#",
-      fulltextLink: "#",
-      description: [
-        "รวบรวมและวิเคราะห์งานศิลปะพื้นถิ่นในภาคอีสาน ตั้งแต่งานทอผ้า จักสาน ไปจนถึงสถาปัตยกรรมพื้นบ้าน สะท้อนภูมิปัญญาที่สืบทอดจากรุ่นสู่รุ่น",
-        "เนื้อหาอ้างอิงจากการลงพื้นที่เก็บข้อมูลในหลายชุมชนของจังหวัดนครราชสีมาและใกล้เคียง พร้อมภาพประกอบและบทสัมภาษณ์ช่างฝีมือ"
-      ]
-    },
-    {
-      id: 3,
-      title: "วรรณกรรมไทยร่วมสมัย: เสียงจากยุคเปลี่ยนผ่าน",
-      author: "สุนิสา แก้วมณี",
-      year: "2565",
-      pages: "276",
-      category: "ภาษา วรรณกรรม และการสื่อสาร",
-      image: "",
-      ebookLink: "#",
-      fulltextLink: "#",
-      description: [
-        "วิเคราะห์แนวโน้มของวรรณกรรมไทยในช่วงสามทศวรรษหลัง ผ่านตัวบทคัดสรรที่สะท้อนความเปลี่ยนแปลงทางสังคม เศรษฐกิจ และเทคโนโลยีการสื่อสาร",
-        "เหมาะสำหรับนักศึกษาวรรณคดีและผู้สนใจศึกษาความสัมพันธ์ระหว่างวรรณกรรมกับบริบททางประวัติศาสตร์ร่วมสมัย"
-      ]
-    },
-    {
-      id: 4,
-      title: "การเมืองไทยในกระแสโลกาภิวัตน์",
-      author: "ธีรพล ศรีสุวรรณ",
-      year: "2564",
-      pages: "312",
-      category: "สังคม การเมือง และกฎหมาย",
-      image: "",
-      ebookLink: "#",
-      fulltextLink: "#",
-      description: [
-        "ศึกษาพลวัตการเมืองไทยภายใต้แรงกดดันจากกระแสโลกาภิวัตน์ ทั้งด้านเศรษฐกิจ การทูต และการเคลื่อนไหวทางสังคมข้ามพรมแดน",
-        "หนังสือเล่มนี้ใช้กรอบทฤษฎีรัฐศาสตร์เปรียบเทียบ ประกอบกับกรณีศึกษาการเมืองไทยตั้งแต่ทศวรรษ 2540 จนถึงปัจจุบัน"
-      ]
-    },
-    {
-      id: 5,
-      title: "พุทธปรัชญากับชีวิตสมัยใหม่",
-      author: "พระมหาวิรัตน์ ปัญญาวุฑโฒ",
-      year: "2563",
-      pages: "224",
-      category: "ศาสนาและปรัชญา",
-      image: "",
-      ebookLink: "#",
-      fulltextLink: "#",
-      description: [
-        "นำหลักพุทธปรัชญามาตีความใหม่ในบริบทของชีวิตสมัยใหม่ที่เต็มไปด้วยความเร่งรีบและความไม่แน่นอน",
-        "เนื้อหาแบ่งเป็นหมวดง่ายต่อการนำไปประยุกต์ใช้ในชีวิตประจำวัน ทั้งด้านการทำงาน ความสัมพันธ์ และการจัดการความเครียด"
-      ]
-    },
-    {
-      id: 6,
-      title: "การจัดการการท่องเที่ยวเชิงวัฒนธรรมโคราช",
-      author: "อรุณี พงษ์ศิริ",
-      year: "2567",
-      pages: "256",
-      category: "ธุรกิจ การจัดการ และการท่องเที่ยว",
-      image: "",
-      ebookLink: "#",
-      fulltextLink: "#",
-      description: [
-        "นำเสนอแนวทางการจัดการการท่องเที่ยวเชิงวัฒนธรรมในพื้นที่จังหวัดนครราชสีมา โดยเน้นการมีส่วนร่วมของชุมชนและความยั่งยืน",
-        "มีกรณีศึกษาจากแหล่งท่องเที่ยวจริงในพื้นที่ พร้อมข้อเสนอแนะเชิงนโยบายสำหรับหน่วยงานท้องถิ่นและผู้ประกอบการ"
-      ]
-    },
-    {
-      id: 7,
-      title: "ปราสาทหินและอารยธรรมขอมในอีสานใต้",
-      author: "ประเสริฐ บุญเรือง",
-      year: "2562",
-      pages: "340",
-      category: "ประวัติศาสตร์ ภูมิศาสตร์ และโบราณคดี",
-      image: "",
-      ebookLink: "#",
-      fulltextLink: "#",
-      description: [
-        "สำรวจประวัติศาสตร์และสถาปัตยกรรมของกลุ่มปราสาทหินในเขตอีสานใต้ ร่องรอยแห่งอารยธรรมขอมโบราณที่ยังหลงเหลืออยู่จนถึงปัจจุบัน",
-        "อ้างอิงหลักฐานทางโบราณคดีและจารึก พร้อมแผนที่และภาพถ่ายประกอบจากการสำรวจภาคสนามหลายพื้นที่"
-      ]
-    },
-    {
-      id: 8,
-      title: "ปัญญาประดิษฐ์เพื่องานวิศวกรรมยุคใหม่",
-      author: "ณัฐพล เจริญวงศ์",
-      year: "2568",
-      pages: "288",
-      category: "วิศวกรรม คอมพิวเตอร์ และเทคโนโลยี",
-      image: "",
-      ebookLink: "#",
-      fulltextLink: "#",
-      description: [
-        "แนะนำแนวคิดพื้นฐานและการประยุกต์ใช้ปัญญาประดิษฐ์ในงานวิศวกรรม ตั้งแต่การบำรุงรักษาเชิงพยากรณ์ไปจนถึงระบบควบคุมอัตโนมัติ",
-        "เขียนขึ้นสำหรับนักศึกษาวิศวกรรมและวิศวกรในภาคอุตสาหกรรมที่ต้องการปรับตัวเข้าสู่ยุคอุตสาหกรรม 4.0"
-      ]
-    },
-    {
-      id: 9,
-      title: "ชีววิทยาแมลงในระบบนิเวศเกษตร",
-      author: "วราภรณ์ ทองดี",
-      year: "2566",
-      pages: "204",
-      category: "วิทยาศาสตร์กายภาพและชีวภาพ",
-      image: "",
-      ebookLink: "#",
-      fulltextLink: "#",
-      description: [
-        "ศึกษาบทบาทของแมลงในระบบนิเวศเกษตร ทั้งแมลงศัตรูพืชและแมลงที่เป็นประโยชน์ พร้อมแนวทางการจัดการศัตรูพืชแบบผสมผสาน",
-        "เหมาะสำหรับนักศึกษาเกษตรศาสตร์และเกษตรกรที่สนใจแนวทางการเพาะปลูกที่เป็นมิตรต่อสิ่งแวดล้อม"
-      ]
-    },
-    {
-      id: 10,
-      title: "สิ่งแวดล้อมและสุขภาพชุมชนในเขตเมือง",
-      author: "กมลชนก ไชยวงศ์",
-      year: "2567",
-      pages: "230",
-      category: "วิทยาศาสตร์ สุขภาพ และสิ่งแวดล้อม",
-      image: "",
-      ebookLink: "#",
-      fulltextLink: "#",
-      description: [
-        "วิเคราะห์ความเชื่อมโยงระหว่างคุณภาพสิ่งแวดล้อมในเขตเมืองกับสุขภาพของประชาชน โดยใช้กรณีศึกษาจากพื้นที่เมืองขนาดกลางในภาคอีสาน",
-        "นำเสนอข้อมูลเชิงสถิติควบคู่กับข้อเสนอแนะเชิงนโยบายด้านสาธารณสุขและการวางผังเมือง"
-      ]
-    },
-    {
-      id: 11,
-      title: "จิตวิทยาการเรียนรู้สำหรับเด็กปฐมวัย",
-      author: "รัตนา ศรีวิไล",
-      year: "2565",
-      pages: "216",
-      category: "การศึกษาและจิตวิทยา",
-      image: "",
-      ebookLink: "#",
-      fulltextLink: "#",
-      description: [
-        "รวมหลักการและทฤษฎีจิตวิทยาพัฒนาการที่เกี่ยวข้องกับการเรียนรู้ของเด็กปฐมวัย พร้อมแนวทางออกแบบกิจกรรมที่เหมาะสมกับแต่ละช่วงวัย",
-        "เขียนขึ้นเพื่อเป็นแนวทางสำหรับครูปฐมวัยและผู้ปกครองในการส่งเสริมพัฒนาการเด็กอย่างรอบด้าน"
-      ]
-    },
-    {
-      id: 12,
-      title: "ภูมิสถาปัตยกรรมเมืองโคราช: พื้นที่สีเขียวในเมือง",
-      author: "ชัยวัฒน์ ดำรงกิจ",
-      year: "2568",
-      pages: "192",
-      category: "ประวัติศาสตร์ ภูมิศาสตร์ และโบราณคดี",
-      image: "",
-      ebookLink: "#",
-      fulltextLink: "#",
-      description: [
-        "ศึกษาวิวัฒนาการของพื้นที่สีเขียวและภูมิสถาปัตยกรรมเมืองนครราชสีมา ตั้งแต่ยุคเริ่มก่อตั้งเมืองจนถึงการวางผังเมืองสมัยใหม่",
-        "เสนอแนวทางการออกแบบพื้นที่สาธารณะที่สมดุลระหว่างการอนุรักษ์และการพัฒนาเมืองอย่างยั่งยืน"
-      ]
-    },
-    {
-      id: 13,
-      title: "หลักการแปลภาษาไทย-อังกฤษเพื่องานวิชาการ",
-      author: "นภาพร เลิศสุวรรณ",
-      year: "2564",
-      pages: "188",
-      category: "ภาษา วรรณกรรม และการสื่อสาร",
-      image: "",
-      ebookLink: "#",
-      fulltextLink: "#",
-      description: [
-        "คู่มือหลักการแปลบทความวิชาการระหว่างภาษาไทยและภาษาอังกฤษ ครอบคลุมเทคนิคการรักษาความหมายและน้ำเสียงของต้นฉบับ",
-        "มีแบบฝึกหัดและตัวอย่างบทแปลจากหลากหลายสาขาวิชา เหมาะสำหรับนักศึกษาและนักแปลมือใหม่"
-      ]
-    },
-    {
-      id: 14,
-      title: "กฎหมายปกครองท้องถิ่นไทย",
-      author: "สมเกียรติ วัฒนไพศาล",
-      year: "2563",
-      pages: "264",
-      category: "สังคม การเมือง และกฎหมาย",
-      image: "",
-      ebookLink: "#",
-      fulltextLink: "#",
-      description: [
-        "อธิบายโครงสร้างและหลักกฎหมายที่เกี่ยวข้องกับการปกครองส่วนท้องถิ่นของไทย ตั้งแต่เทศบาลไปจนถึงองค์การบริหารส่วนจังหวัด",
-        "เหมาะสำหรับนักศึกษานิติศาสตร์และรัฐประศาสนศาสตร์ รวมถึงบุคลากรองค์กรปกครองส่วนท้องถิ่น"
-      ]
-    },
-    {
-      id: 15,
-      title: "เทคโนโลยีพลังงานทดแทนเพื่อชุมชน",
-      author: "ศิริพงษ์ แสงทอง",
-      year: "2568",
-      pages: "212",
-      category: "วิศวกรรม คอมพิวเตอร์ และเทคโนโลยี",
-      image: "",
-      ebookLink: "#",
-      fulltextLink: "#",
-      description: [
-        "นำเสนอเทคโนโลยีพลังงานทดแทนที่เหมาะสมกับบริบทชุมชนชนบท ทั้งพลังงานแสงอาทิตย์ ชีวมวล และพลังงานลมขนาดเล็ก",
-        "มีกรณีศึกษาการติดตั้งจริงในหมู่บ้านนำร่องหลายแห่งในภาคอีสาน พร้อมการวิเคราะห์ความคุ้มค่าทางเศรษฐศาสตร์"
-      ]
-    },
-    {
-      id: 16,
-      title: "ปรัชญาตะวันตกเบื้องต้น",
-      author: "วิภาวี ชูเกียรติ",
-      year: "2562",
-      pages: "296",
-      category: "ศาสนาและปรัชญา",
-      image: "",
-      ebookLink: "#",
-      fulltextLink: "#",
-      description: [
-        "ปูพื้นฐานความคิดของนักปรัชญาตะวันตกคนสำคัญ ตั้งแต่ยุคกรีกโบราณจนถึงปรัชญาสมัยใหม่ ในภาษาที่เข้าใจง่าย",
-        "เหมาะสำหรับผู้เริ่มต้นศึกษาปรัชญา ใช้เป็นตำราประกอบรายวิชาปรัชญาเบื้องต้นในระดับปริญญาตรี"
-      ]
-    }
-  ];
-
-  /* ------------------------------------------------------------------------
-     4. State
-     ------------------------------------------------------------------------ */
-  const ITEMS_PER_PAGE = 12;
-
-  let BOOKS = [];                        // populated by loadBooks() from the sheet
-  let FILTER_CATEGORIES = ['ทั้งหมด'];   // rebuilt from whatever categories exist in BOOKS
+  let BOOKS = [];
   let activeCategory = 'ทั้งหมด';
   let searchTerm = '';
-  let currentPage = 1;
   let lastFocusedElement = null;
+  let loading = true;
+  let loadError = null;
+  let currentPage = 1;
+  const ITEMS_PER_PAGE = 12;
+  let isInitialRender = true;
 
-  /* ------------------------------------------------------------------------
-     4. DOM references
-     ------------------------------------------------------------------------ */
   const bookGrid = document.getElementById('bookGrid');
   const filterRow = document.getElementById('filterRow');
   const searchInput = document.getElementById('searchInput');
   const clearSearchBtn = document.getElementById('clearSearch');
   const resultsMeta = document.getElementById('resultsMeta');
   const emptyState = document.getElementById('emptyState');
-
-  const connectionNotice = document.getElementById('connectionNotice');
-  const connectionNoticeText = document.getElementById('connectionNoticeText');
-  const retryConnectionBtn = document.getElementById('retryConnection');
-
-  const pagination = document.getElementById('pagination');
+  const errorState = document.getElementById('errorState');
   const prevPageBtn = document.getElementById('prevPage');
   const nextPageBtn = document.getElementById('nextPage');
-  const pageIndicator = document.getElementById('pageIndicator');
+  const pageInfo = document.getElementById('pageInfo');
 
   const modal = document.getElementById('bookModal');
   const modalClose = document.getElementById('modalClose');
@@ -336,27 +49,24 @@
   const modalCategory = document.getElementById('modalCategory');
   const modalTitle = document.getElementById('modalTitle');
   const modalAuthor = document.getElementById('modalAuthor');
-  const modalAuthorName = document.getElementById('modalAuthorName');
   const modalYear = document.getElementById('modalYear');
   const modalPages = document.getElementById('modalPages');
   const modalCategoryText = document.getElementById('modalCategoryText');
   const modalDescription = document.getElementById('modalDescription');
   const modalEbookLink = document.getElementById('modalEbookLink');
   const modalFulltextLink = document.getElementById('modalFulltextLink');
-  const modalFacultyRow = document.getElementById('modalFacultyRow');
   const modalFaculty = document.getElementById('modalFaculty');
   const modalTags = document.getElementById('modalTags');
 
-  /* ------------------------------------------------------------------------
-     5. Helpers
-     ------------------------------------------------------------------------ */
+  function cleanTitle(title) {
+    return title.replace(/https?:\/\/[a-zA-Z0-9./_-]+/, '');
+  }
+
   function categoryIndex(category) {
     const i = CATEGORIES.indexOf(category);
     return i === -1 ? 0 : i % 10;
   }
 
-  // Pull a short, display-friendly fragment of the title for the
-  // generated placeholder cover (used only when no real image is set).
   function coverGlyph(title) {
     return title.length > 40 ? title.slice(0, 40) + '…' : title;
   }
@@ -367,148 +77,185 @@
     return div.innerHTML;
   }
 
-  /* ------------------------------------------------------------------------
-     5b. Google Sheet loading
-     ------------------------------------------------------------------------ */
+  function normalizeDriveUrl(url) {
+    if (!url || typeof url !== 'string') return '';
+    const m = url.match(/drive\.google\.com\/file\/d\/([^\/?]+)/);
+    if (!m) return url;
+    return 'https://drive.google.com/uc?id=' + m[1];
+  }
 
-  // Fetches the sheet values, with one automatic retry against the first
-  // available tab if SHEET_CONFIG.sheetName doesn't match (the most common
-  // setup mistake — a 400 "Unable to parse range" error).
-  async function fetchSheetValues() {
-    const base = 'https://sheets.googleapis.com/v4/spreadsheets/' + SHEET_CONFIG.spreadsheetId;
-    const rangeFor = function (tabName) { return encodeURIComponent(tabName + '!' + SHEET_CONFIG.range); };
+  function parseCsv(text) {
+    const rows = [];
+    let row = [];
+    let cell = '';
+    let i = 0;
+    let inQuotes = false;
 
-    let res = await fetch(base + '/values/' + rangeFor(SHEET_CONFIG.sheetName) + '?key=' + SHEET_CONFIG.apiKey);
+    function flushCell() {
+      row.push(cell);
+      cell = '';
+    }
 
-    if (res.status === 400) {
-      const metaRes = await fetch(base + '?key=' + SHEET_CONFIG.apiKey + '&fields=sheets.properties.title');
-      if (metaRes.ok) {
-        const meta = await metaRes.json();
-        const firstTab = meta.sheets && meta.sheets[0] && meta.sheets[0].properties && meta.sheets[0].properties.title;
-        if (firstTab && firstTab !== SHEET_CONFIG.sheetName) {
-          res = await fetch(base + '/values/' + rangeFor(firstTab) + '?key=' + SHEET_CONFIG.apiKey);
+    function flushRow() {
+      if (row.length > 0) {
+        rows.push(row);
+        row = [];
+      }
+    }
+
+    while (i < text.length) {
+      const ch = text[i];
+
+      if (inQuotes) {
+        if (ch === '"') {
+          if (i + 1 < text.length && text[i + 1] === '"') {
+            cell += '"';
+            i += 2;
+          } else {
+            inQuotes = false;
+            i++;
+          }
+        } else {
+          cell += ch;
+          i++;
+        }
+      } else {
+        if (ch === '"') {
+          inQuotes = true;
+          i++;
+        } else if (ch === ',') {
+          flushCell();
+          i++;
+        } else if (ch === '\r') {
+          i++;
+        } else if (ch === '\n') {
+          flushRow();
+          i++;
+        } else {
+          cell += ch;
+          i++;
         }
       }
     }
 
-    if (!res.ok) {
-      const body = await res.json().catch(function () { return {}; });
-      throw new Error((body.error && body.error.message) || ('HTTP ' + res.status));
-    }
-
-    const data = await res.json();
-    return data.values || [];
+    flushCell();
+    flushRow();
+    return rows;
   }
 
-  // Maps sheet rows (header row + data rows) into the book object shape
-  // the rest of the app uses. Looks columns up by header name so column
-  // order in the sheet doesn't matter.
-  function rowsToBooks(rows) {
-    if (!rows || rows.length < 2) return [];
-
-    const headers = rows[0].map(function (h) { return String(h || '').trim().toLowerCase(); });
-    const col = function (name) { return headers.indexOf(name); };
-
-    const iTitle = col('title'), iAuthor = col('author'), iFaculty = col('faculty'),
-      iYear = col('year'), iPage = col('page'), iDesc = col('description'),
-      iCategory = col('category'), iTags = col('tags'), iCover = col('cover_url'),
-      iPdf = col('pdf_url'), iFulltext = col('fulltext_url');
-
-    return rows.slice(1)
-      .filter(function (row) { return row && row.length && iTitle > -1 && String(row[iTitle] || '').trim(); })
-      .map(function (row, i) {
-        const cell = function (idx) { return idx > -1 && row[idx] != null ? String(row[idx]).trim() : ''; };
-        const descRaw = cell(iDesc);
-        const tagsRaw = cell(iTags);
-
-        return {
-          id: i + 1,
-          title: cell(iTitle),
-          author: cell(iAuthor),
-          faculty: cell(iFaculty),
-          year: cell(iYear).replace(/,/g, ''),
-          pages: cell(iPage).replace(/,/g, ''),
-          category: cell(iCategory) || 'ทั่วไป',
-          tags: tagsRaw ? tagsRaw.split(',').map(function (t) { return t.trim(); }).filter(Boolean) : [],
-          image: cell(iCover),
-          ebookLink: cell(iPdf) || '#',
-          fulltextLink: cell(iFulltext) || '#',
-          description: descRaw ? descRaw.split(/\n+/).filter(Boolean) : ['ไม่มีคำอธิบายเพิ่มเติมสำหรับหนังสือเล่มนี้']
-        };
-      });
+  function splitTags(raw) {
+    if (!raw || !raw.trim()) return [];
+    return raw.split(',').map(function (t) { return t.trim(); }).filter(Boolean);
   }
 
-  // Filter pills follow the university's canonical 10-category order first,
-  // then append any category found in the sheet that isn't on that list —
-  // so a typo or a new category in the sheet still shows up rather than
-  // silently vanishing.
-  function buildFilterCategories(books) {
-    const present = [];
-    books.forEach(function (b) {
-      if (b.category && present.indexOf(b.category) === -1) present.push(b.category);
-    });
-    const known = CATEGORIES.filter(function (c) { return present.indexOf(c) > -1; });
-    const extra = present.filter(function (c) { return CATEGORIES.indexOf(c) === -1; }).sort();
-    return ['ทั้งหมด'].concat(known, extra);
+  function splitDescription(raw) {
+    if (!raw) return [''];
+    return raw.split(/\r?\n/).map(function (p) { return p.trim(); }).filter(Boolean);
   }
 
-  function skeletonMarkup(count) {
-    let html = '';
-    for (let i = 0; i < count; i++) {
-      html +=
-        '<div class="book-card skeleton-card" aria-hidden="true">' +
-          '<div class="book-cover skeleton-shimmer"></div>' +
-          '<div class="book-info">' +
-            '<div class="skeleton-line skeleton-tag skeleton-shimmer"></div>' +
-            '<div class="skeleton-line skeleton-title skeleton-shimmer"></div>' +
-            '<div class="skeleton-line skeleton-author skeleton-shimmer"></div>' +
-          '</div>' +
-        '</div>';
-    }
-    return html;
-  }
+  async function fetchBooks() {
+    loading = true;
+    loadError = null;
+    isInitialRender = true;
+    renderStatus();
+    const startTime = Date.now();
 
-  function showLoadingState() {
-    emptyState.hidden = true;
-    pagination.hidden = true;
-    connectionNotice.hidden = true;
-    resultsMeta.textContent = 'กำลังโหลดข้อมูลหนังสือจาก Google Sheet...';
-    bookGrid.innerHTML = skeletonMarkup(8);
-  }
-
-  function showConnectionNotice(message) {
-    connectionNoticeText.textContent =
-      'เชื่อมต่อ Google Sheet ไม่สำเร็จ (' + message + ') — กำลังแสดงข้อมูลตัวอย่างแทนไปก่อน';
-    connectionNotice.hidden = false;
-  }
-
-  async function loadBooks() {
-    showLoadingState();
     try {
-      const rows = await fetchSheetValues();
-      const books = rowsToBooks(rows);
-      if (!books.length) throw new Error('ไม่พบแถวข้อมูลหนังสือในชีต');
-      BOOKS = books;
-      connectionNotice.hidden = true;
-    } catch (err) {
-      BOOKS = FALLBACK_BOOKS;
-      showConnectionNotice(err.message);
+      const res = await fetch(SHEET_CSV_URL);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      let text = await res.text();
+      if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+      const parsed = parseCsv(text);
+      if (parsed.length < 2) throw new Error('CSV ว่างหรือไม่มีหัวตาราง');
+      const headers = parsed[0].map(function (h) { return h.trim().toLowerCase(); });
+      console.log('CSV headers:', headers);
+      const idx = {};
+      headers.forEach(function (h, i) { idx[h] = i; });
+      console.log('CSV column index:', idx);
+
+      const required = ['title', 'author', 'year', 'page', 'description', 'category'];
+      for (const r of required) {
+        if (idx[r] === undefined) throw new Error('ขาดคอลัมน์: ' + r);
+      }
+
+      BOOKS = parsed.slice(1).map(function (row, rowIndex) {
+        if (row.length !== headers.length) {
+          console.warn('Row ' + rowIndex + ' column count mismatch: expected ' + headers.length + ', got ' + row.length, row);
+        }
+        const get = (col, def) => (idx[col] !== undefined && row[idx[col]] !== undefined) ? row[idx[col]].trim() : def;
+        const book = {
+          id: String(rowIndex + 1),
+          title: get('title', ''),
+          author: get('author', ''),
+          faculty: get('faculty', ''),
+          year: get('year', ''),
+          pages: get('page', ''),
+          category: get('category', ''),
+          image: normalizeDriveUrl(get('cover_url', '')),
+          ebookLink: get('pdf_url', '#'),
+          fulltextLink: get('fulltext_url', '#'),
+          tags: splitTags(get('tags', '')),
+          description: splitDescription(get('description', ''))
+        };
+        if (rowIndex < 3) console.log('Parsed book ' + rowIndex + ':', book);
+        return book;
+      }).filter(function (b) { return b.title && b.category; });
+
+      loading = false;
+    } catch (e) {
+      loading = false;
+      loadError = e.message || String(e);
     }
 
-    FILTER_CATEGORIES = buildFilterCategories(BOOKS);
-    activeCategory = 'ทั้งหมด';
+    const elapsed = Date.now() - startTime;
+    if (elapsed < 500) {
+      await new Promise(function (r) { setTimeout(r, 500 - elapsed); });
+    }
+
     currentPage = 1;
+    renderStatus();
     renderFilters();
     renderBooks();
+    isInitialRender = false;
   }
 
-  retryConnectionBtn.addEventListener('click', loadBooks);
+  function renderStatus() {
+    if (loading) {
+      bookGrid.innerHTML = '';
+      emptyState.hidden = true;
+      if (errorState) errorState.hidden = true;
+      renderSkeleton();
+      return;
+    }
+    if (loadError) {
+      bookGrid.innerHTML = '';
+      emptyState.hidden = true;
+      if (errorState) {
+        errorState.hidden = false;
+        errorState.querySelector('.error-message').textContent = 'ไม่สามารถโหลดข้อมูลได้: ' + loadError;
+      }
+      return;
+    }
+    if (errorState) errorState.hidden = true;
+  }
 
-  /* ------------------------------------------------------------------------
-     6. Render: filter pills
-     ------------------------------------------------------------------------ */
+  function renderSkeleton() {
+    bookGrid.innerHTML = Array.from({ length: 12 }, function () {
+      return (
+        '<div class="skeleton-card" aria-hidden="true">' +
+          '<div class="skeleton-cover"></div>' +
+          '<div class="skeleton-body">' +
+            '<div class="skeleton-line"></div>' +
+            '<div class="skeleton-line short"></div>' +
+          '</div>' +
+        '</div>'
+      );
+    }).join('');
+  }
+
   function renderFilters() {
-    filterRow.innerHTML = FILTER_CATEGORIES.map(function (cat) {
+    const all = ['ทั้งหมด', ...CATEGORIES];
+    filterRow.innerHTML = all.map(function (cat) {
       const isActive = cat === activeCategory;
       return '<button type="button" class="filter-pill' + (isActive ? ' active' : '') +
         '" data-category="' + escapeHtml(cat) + '" aria-pressed="' + isActive + '">' +
@@ -525,9 +272,6 @@
     renderBooks();
   });
 
-  /* ------------------------------------------------------------------------
-     7. Render: book grid
-     ------------------------------------------------------------------------ */
   function getFilteredBooks() {
     const term = searchTerm.trim().toLowerCase();
     return BOOKS.filter(function (book) {
@@ -551,91 +295,116 @@
         stampMarkup(book.year);
     }
     return '<div class="book-cover-generated cover-cat-' + catIndex + '">' +
-      '<span class="cover-glyph">' + escapeHtml(coverGlyph(book.title)) + '</span>' +
+      '<span class="cover-glyph">' + escapeHtml(coverGlyph(cleanTitle(book.title))) + '</span>' +
       '</div>' + stampMarkup(book.year);
   }
 
   function stampMarkup(year) {
     return '<div class="cover-stamp" aria-hidden="true">' +
-      '<span class="cover-stamp-label">พ.ศ.</span>' +
       '<span class="cover-stamp-year">' + escapeHtml(year) + '</span>' +
+      '<span class="cover-stamp-label">พ.ศ.</span>' +
       '</div>';
   }
 
   function renderBooks() {
+    if (loading || loadError) return;
     const filtered = getFilteredBooks();
-    const totalResults = filtered.length;
-    const totalPages = Math.max(1, Math.ceil(totalResults / ITEMS_PER_PAGE));
 
-    // Keep currentPage in range if the result set shrank (e.g. a new
-    // search narrowed things down to fewer pages than before).
-    if (currentPage > totalPages) currentPage = totalPages;
-    if (currentPage < 1) currentPage = 1;
-
-    resultsMeta.innerHTML = 'พบทั้งหมด <strong>' + totalResults + '</strong> เล่ม' +
+    resultsMeta.innerHTML = 'พบ <strong>' + filtered.length + '</strong> รายการ' +
       (activeCategory !== 'ทั้งหมด' ? ' ในหมวด "' + escapeHtml(activeCategory) + '"' : '');
 
-    if (totalResults === 0) {
+    const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
+    if (currentPage > totalPages) currentPage = totalPages;
+
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    const pageItems = filtered.slice(start, start + ITEMS_PER_PAGE);
+
+    if (pageItems.length === 0) {
       bookGrid.innerHTML = '';
       emptyState.hidden = false;
-      pagination.hidden = true;
+      updatePagination(filtered.length);
       return;
     }
     emptyState.hidden = true;
 
-    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    const pageItems = filtered.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-
-    renderPagination(totalResults, totalPages, startIndex, pageItems.length);
-
     bookGrid.innerHTML = pageItems.map(function (book, i) {
+      const tagsHtml = book.tags.map(function (t) {
+        return '<span class="book-tag">' + escapeHtml(t) + '</span>';
+      }).join('');
       return (
         '<article class="book-card" tabindex="0" role="button" ' +
         'aria-label="เปิดรายละเอียด ' + escapeHtml(book.title) + '" ' +
-        'data-id="' + book.id + '" style="animation-delay:' + Math.min(i * 35, 350) + 'ms">' +
+        'data-id="' + escapeHtml(book.id) + '" style="animation-delay:' + (isInitialRender ? '0' : Math.min(i * 35, 350)) + 'ms">' +
           '<div class="book-cover">' + bookCoverMarkup(book) + '</div>' +
           '<div class="book-info">' +
             '<span class="book-category-tag">' + escapeHtml(book.category) + '</span>' +
-            '<h3 class="book-title">' + escapeHtml(book.title) + '</h3>' +
+            '<h3 class="book-title">' + escapeHtml(cleanTitle(book.title)) + '</h3>' +
             '<p class="book-author">' + escapeHtml(book.author) + '</p>' +
+            (book.faculty ? '<p class="book-faculty">' + escapeHtml(book.faculty) + '</p>' : '') +
+            '<div class="book-tags-row">' + tagsHtml + '</div>' +
           '</div>' +
         '</article>'
       );
     }).join('');
+
+    const images = bookGrid.querySelectorAll('.book-cover-img');
+    images.forEach(function (img) {
+      if (img.complete && img.naturalWidth > 0) {
+        img.classList.add('loaded');
+      } else {
+        img.addEventListener('load', function () {
+          img.classList.add('loaded');
+        }, { once: true });
+        img.addEventListener('error', function () {
+          img.classList.add('loaded');
+        }, { once: true });
+      }
+    });
+
+    updatePagination(filtered.length);
   }
 
-  function renderPagination(totalResults, totalPages, startIndex, pageCount) {
-    if (totalPages <= 1) {
-      pagination.hidden = true;
-      return;
-    }
-    pagination.hidden = false;
-
-    pageIndicator.textContent = 'หน้าที่ ' + currentPage + ' จาก ' + totalPages + ' หน้า';
-
+  function updatePagination(totalItems) {
+    const totalPages = Math.max(1, Math.ceil(totalItems / ITEMS_PER_PAGE));
+    pageInfo.textContent = 'หน้า ' + currentPage + ' จาก ' + totalPages;
     prevPageBtn.disabled = currentPage <= 1;
     nextPageBtn.disabled = currentPage >= totalPages;
   }
 
-  function goToPage(page) {
-    currentPage = page;
-    renderBooks();
-    // Bring the top of the grid into view so the new page starts on screen
-    document.getElementById('bookGrid').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  function transitionPage(callback, onComplete) {
+    if (bookGrid.classList.contains('is-fading')) return;
+    const oldHeight = bookGrid.getBoundingClientRect().height;
+    bookGrid.style.minHeight = oldHeight + 'px';
+
+    const done = function () {
+      bookGrid.style.minHeight = '';
+      if (onComplete) onComplete();
+    };
+
+    if (document.startViewTransition) {
+      const transition = document.startViewTransition(callback);
+      transition.finished.then(done).catch(done);
+    } else {
+      bookGrid.classList.add('is-fading');
+      setTimeout(function () {
+        callback();
+        bookGrid.classList.remove('is-fading');
+        if (onComplete) {
+          function handler(e) {
+            if (e.propertyName !== 'opacity') return;
+            bookGrid.removeEventListener('transitionend', handler);
+            done();
+          }
+          bookGrid.addEventListener('transitionend', handler);
+        }
+      }, 240);
+    }
   }
-
-  prevPageBtn.addEventListener('click', function () {
-    if (currentPage > 1) goToPage(currentPage - 1);
-  });
-
-  nextPageBtn.addEventListener('click', function () {
-    goToPage(currentPage + 1);
-  });
 
   bookGrid.addEventListener('click', function (e) {
     const card = e.target.closest('.book-card');
     if (!card) return;
-    openModal(Number(card.dataset.id));
+    openModal(card.dataset.id);
   });
 
   bookGrid.addEventListener('keydown', function (e) {
@@ -643,31 +412,25 @@
     const card = e.target.closest('.book-card');
     if (!card) return;
     e.preventDefault();
-    openModal(Number(card.dataset.id));
+    openModal(card.dataset.id);
   });
 
-  /* ------------------------------------------------------------------------
-     8. Search
-     ------------------------------------------------------------------------ */
   searchInput.addEventListener('input', function () {
     searchTerm = searchInput.value;
-    clearSearchBtn.hidden = searchTerm.length === 0;
     currentPage = 1;
+    clearSearchBtn.hidden = searchTerm.length === 0;
     renderBooks();
   });
 
   clearSearchBtn.addEventListener('click', function () {
     searchInput.value = '';
     searchTerm = '';
-    clearSearchBtn.hidden = true;
     currentPage = 1;
+    clearSearchBtn.hidden = true;
     searchInput.focus();
     renderBooks();
   });
 
-  /* ------------------------------------------------------------------------
-     9. Modal
-     ------------------------------------------------------------------------ */
   function openModal(id) {
     const book = BOOKS.find(function (b) { return b.id === id; });
     if (!book) return;
@@ -675,27 +438,22 @@
     lastFocusedElement = document.activeElement;
 
     modalCategory.textContent = book.category;
-    modalTitle.textContent = book.title;
-    modalAuthorName.textContent = book.author || 'ไม่ระบุผู้เขียน';
-    modalYear.textContent = book.year || '—';
-    modalPages.textContent = book.pages ? (book.pages + ' หน้า') : '—';
+    modalTitle.textContent = cleanTitle(book.title);
+    modalAuthor.textContent = book.author;
+    modalYear.textContent = book.year;
+    modalPages.textContent = book.pages + ' หน้า';
     modalCategoryText.textContent = book.category;
 
-    if (book.faculty) {
-      modalFacultyRow.hidden = false;
-      modalFaculty.textContent = book.faculty;
-    } else {
-      modalFacultyRow.hidden = true;
+    if (modalFaculty) {
+      modalFaculty.textContent = book.faculty || '';
+      modalFaculty.style.display = book.faculty ? '' : 'none';
     }
 
-    if (book.tags && book.tags.length) {
-      modalTags.hidden = false;
+    if (modalTags) {
       modalTags.innerHTML = book.tags.map(function (t) {
         return '<span class="modal-tag">' + escapeHtml(t) + '</span>';
       }).join('');
-    } else {
-      modalTags.hidden = true;
-      modalTags.innerHTML = '';
+      modalTags.style.display = book.tags.length ? '' : 'none';
     }
 
     modalDescription.innerHTML = book.description.map(function (para) {
@@ -724,7 +482,6 @@
 
   modalClose.addEventListener('click', closeModal);
 
-  // Close when clicking the dark backdrop (outside the modal card)
   modal.addEventListener('click', function (e) {
     if (e.target === modal) closeModal();
   });
@@ -733,9 +490,37 @@
     if (e.key === 'Escape' && !modal.hidden) closeModal();
   });
 
-  /* ------------------------------------------------------------------------
-     10. Init
-     ------------------------------------------------------------------------ */
-  loadBooks();
+  const retryBtn = document.getElementById('retryBtn');
+  if (retryBtn) {
+    retryBtn.addEventListener('click', function () {
+      fetchBooks();
+    });
+  }
+
+  if (prevPageBtn && nextPageBtn) {
+    prevPageBtn.addEventListener('click', function () {
+      if (currentPage > 1 && !bookGrid.classList.contains('is-fading')) {
+        currentPage--;
+        transitionPage(renderBooks, function () {
+          bookGrid.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      }
+    });
+
+    nextPageBtn.addEventListener('click', function () {
+      const filtered = getFilteredBooks();
+      const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
+      if (currentPage < totalPages && !bookGrid.classList.contains('is-fading')) {
+        currentPage++;
+        transitionPage(renderBooks, function () {
+          bookGrid.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      }
+    });
+  }
+
+  renderFilters();
+  renderStatus();
+  fetchBooks();
 
 })();

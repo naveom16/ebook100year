@@ -9,6 +9,7 @@
 <!-- Fonts: Taviraj (display serif) for headings, Sarabun (UI) for body text -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="icon" type="image/gif" href="https://library.nrru.ac.th/wp-content/uploads/2025/06/logo-gif.gif">
 <link href="https://fonts.googleapis.com/css2?family=Taviraj:wght@500;600;700&family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
 
 <link rel="stylesheet" href="style.css">
@@ -19,14 +20,7 @@
 <header class="site-header">
   <div class="header-inner">
     <a href="#top" class="brand" aria-label="กลับสู่หน้าแรก">
-      <span class="brand-seal" aria-hidden="true">
-        <svg viewBox="0 0 100 100" class="seal-svg">
-          <circle cx="50" cy="50" r="46" class="seal-ring"></circle>
-          <circle cx="50" cy="50" r="38" class="seal-ring-inner"></circle>
-          <text x="50" y="45" class="seal-number" text-anchor="middle">๑๐๐</text>
-          <text x="50" y="66" class="seal-label" text-anchor="middle">ปี</text>
-        </svg>
-      </span>
+      <img class="brand-seal-img" src="https://library.nrru.ac.th/wp-content/uploads/2025/06/logo-gif.gif" alt="มหาวิทยาลัยราชภัฏนครราชสีมา">
       <span class="brand-text">
         <span class="brand-title">ตำรา ๑๐๐ ปี eBooks</span>
         <span class="brand-subtitle">มหาวิทยาลัยราชภัฏนครราชสีมา</span>
@@ -40,9 +34,9 @@
   <!-- ===================== HERO / INTRO ===================== -->
   <section class="hero">
     <div class="hero-inner">
-      
-      <h1 class="hero-heading">ตำรา ๑๐๐ ปี eBooks<br></h1>
-      <p class="hero-eyebrow">มหาวิทยาลัยราชภัฏนครราชสีมา</p>
+      <p class="hero-eyebrow">โครงการอนุรักษ์ตำรา</p>
+      <h1 class="hero-heading">หนึ่งศตวรรษแห่งความรู้<br>ที่ยังอ่านได้ในวันนี้</h1>
+      <p class="hero-copy">คลังตำราและสื่อสิ่งพิมพ์ของมหาวิทยาลัย รวบรวม เก็บรักษา และเปิดให้เข้าถึงได้ในรูปแบบดิจิทัล เพื่อให้ทุกความรู้ยังคงถูกส่งต่อ</p>
     </div>
   </section>
 
@@ -66,10 +60,7 @@
         <button type="button" id="clearSearch" class="clear-search" aria-label="ล้างคำค้นหา" hidden>&times;</button>
       </div>
 
-      <p class="filter-heading">หมวดหมู่</p>
-
       <div class="filter-row" id="filterRow" role="group" aria-label="หมวดหมู่หนังสือ">
-        <span class="filter-label">หมวดหมู่ หน้า</span>
         <!-- filter pill buttons injected by script.js -->
       </div>
 
@@ -81,41 +72,16 @@
     <p id="resultsMeta" class="results-meta"></p>
   </div>
 
-  <!-- Shown only if the Google Sheet can't be reached; falls back to sample data -->
-  <div class="notice-wrap">
-    <div id="connectionNotice" class="connection-notice" role="status" hidden>
-      <svg viewBox="0 0 24 24" class="connection-notice-icon" aria-hidden="true">
-        <circle cx="12" cy="12" r="9"></circle>
-        <line x1="12" y1="8" x2="12" y2="13"></line>
-        <line x1="12" y1="16" x2="12.01" y2="16"></line>
-      </svg>
-      <p id="connectionNoticeText" class="connection-notice-text"></p>
-      <button type="button" id="retryConnection" class="connection-notice-retry">ลองใหม่</button>
-    </div>
+  <div id="errorState" class="error-state" hidden>
+    <p class="error-message"></p>
+    <button type="button" class="btn btn-secondary" id="retryBtn">ลองโหลดใหม่</button>
   </div>
-
 
   <!-- ===================== BOOK GRID ===================== -->
   <section class="library-section" aria-label="รายการหนังสือ">
     <div id="bookGrid" class="book-grid">
       <!-- book cards injected by script.js -->
     </div>
-
-    <nav id="pagination" class="pagination" aria-label="เปลี่ยนหน้ารายการหนังสือ" hidden>
-      <button type="button" id="prevPage" class="page-btn page-btn-prev">
-        <svg viewBox="0 0 24 24" class="page-btn-icon" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
-        <span>ย้อนกลับ</span>
-      </button>
-
-      <div class="page-status">
-        <span id="pageIndicator" class="page-indicator"></span>
-      </div>
-
-      <button type="button" id="nextPage" class="page-btn page-btn-next">
-        <span>ถัดไป</span>
-        <svg viewBox="0 0 24 24" class="page-btn-icon" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
-      </button>
-    </nav>
 
     <div id="emptyState" class="empty-state" hidden>
       <svg viewBox="0 0 64 64" class="empty-icon" aria-hidden="true">
@@ -125,6 +91,13 @@
       <p class="empty-title">ไม่พบหนังสือที่ค้นหา</p>
       <p class="empty-copy">ลองค้นหาด้วยคำอื่น หรือเลือกหมวดหมู่ "ทั้งหมด" อีกครั้ง</p>
     </div>
+
+    <!-- ===================== PAGINATION ===================== -->
+    <nav id="pagination" class="pagination" aria-label="แบ่งหน้าหารายการหนังสือ">
+      <button type="button" id="prevPage" class="pagination-btn" aria-label="ย้อนกลับ">&larr; ย้อนกลับ</button>
+      <span id="pageInfo" class="page-info">หน้า 1 จาก 1</span>
+      <button type="button" id="nextPage" class="pagination-btn" aria-label="ถัดไป">ถัดไป &rarr;</button>
+    </nav>
   </section>
 
 </main>
@@ -153,10 +126,9 @@
       <div class="modal-info-col">
         <span id="modalCategory" class="modal-category-tag"></span>
         <h2 id="modalTitle" class="modal-title"></h2>
-        <p id="modalAuthor" class="modal-author">
-          <span class="modal-author-label">ผู้เขียน</span>
-          <span id="modalAuthorName" class="modal-author-name"></span>
-        </p>
+        <p id="modalAuthor" class="modal-author"></p>
+        <p id="modalFaculty" class="modal-faculty" hidden></p>
+        <div id="modalTags" class="modal-tags" hidden></div>
 
         <dl class="modal-facts">
           <div class="modal-fact">
@@ -171,13 +143,7 @@
             <dt>หมวดหมู่</dt>
             <dd id="modalCategoryText"></dd>
           </div>
-          <div class="modal-fact" id="modalFacultyRow" hidden>
-            <dt>คณะ</dt>
-            <dd id="modalFaculty"></dd>
-          </div>
         </dl>
-
-        <div id="modalTags" class="modal-tags" hidden></div>
 
         <div class="modal-description-wrap">
           <h3 class="modal-section-label">รายละเอียด</h3>
