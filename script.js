@@ -15,7 +15,7 @@
     'ศาสนาและปรัชญา',
     'ธุรกิจ การจัดการ และการท่องเที่ยว',
     'ประวัติศาสตร์ ภูมิศาสตร์ และโบราณคดี',
-    'วิศวกรรม คอมพิวเตอร์ และเทคโนโลยี',
+    'วิศว工程 คอมพิวเตอร์ และเทคโนโลยี',
     'วิทยาศาสตร์กายภาพและชีวภาพ',
     'วิทยาศาสตร์ สุขภาพ และสิ่งแวดล้อม'
   ];
@@ -58,8 +58,98 @@
   const modalFaculty = document.getElementById('modalFaculty');
   const modalTags = document.getElementById('modalTags');
 
-  function cleanTitle(title) {
-    return title.replace(/https?:\/\/[a-zA-Z0-9./_-]+/, '');
+  function cleanTitle(rawTitle) {
+    if (!rawTitle || typeof rawTitle !== 'string') return '';
+    console.log('Original title:', rawTitle);
+
+    let cleaned = rawTitle;
+
+    // 1) Known metadata-column prefixes accidentally pasted into the title
+    //    cell (e.g. "url_ Understanding Literature"). Anchored to the very
+    //    start and only ever consumes the literal prefix word + separators,
+    //    so it can never eat into the real title.
+    cleaned = cleaned.replace(/^(?:fulltext_url|ebook_url|pdf_url|url_|link_)[_\-\s]*/i, '');
+
+    // 2) Markdown-style links "[label](url)" - bounded by [] and (), so this
+    //    can't bleed past its own brackets into surrounding text.
+    cleaned = cleaned.replace(/\[[^\]]*\]\([^)]*\)/g, '');
+
+    // 3) DEFENSIVE FIX for the reported bug: sometimes a Google
+    //    Drive/Docs/Forms link gets pasted directly in front of the title
+    //    with NO separating space, e.g.
+    //    "https://docs.google.com/document/d/xxx/editUnderstanding Literature".
+    //    The OLD code matched URL characters with a case-insensitive
+    //    character class that included plain letters (a-z/A-Z) and had no
+    //    requirement to stop at a word boundary, so it kept consuming
+    //    straight through "editUnderstanding" and swallowed the first word
+    //    of the title along with the URL. Here we insert a boundary space
+    //    right after well-known link terminators BEFORE doing any removal,
+    //    so the URL becomes its own separate, whitespace-delimited token.
+    cleaned = cleaned.replace(
+      /(\/edit|\/view|\/preview|\/copy|\/pubhtml|\/pub|\?usp=sharing|\?usp=drive_link|&usp=sharing)(?=[^\s])/gi,
+      '$1 '
+    );
+
+    // 3b) CONFIRMED ROOT CAUSE (row 96, "จุลชีพที่สำคัญทางสาธารณสุข"): a bare
+    //     link with NO recognizable terminator (e.g. a raw forms.gle share
+    //     link) glued directly onto a Thai title with zero separator, e.g.
+    //     "https://forms.gle/X9b16pteLh8eg7ZU6จุลชีพที่สำคัญทางสาธารณสุข".
+    //     Thai script (U+0E00-U+0E7F) can never legally appear inside a
+    //     URL, so the first Thai character right after a URL-looking
+    //     prefix is a 100% safe, unambiguous boundary to split on - unlike
+    //     English titles, this case can be solved with certainty.
+    cleaned = cleaned.replace(
+      /((?:https?:\/\/|www\.|forms\.gle\/|drive\.google\.com\/|docs\.google\.com\/)[^\s\u0E00-\u0E7F]+)(?=[\u0E00-\u0E7F])/gi,
+      '$1 '
+    );
+
+    // 3c) CONFIRMED ROOT CAUSE (2nd occurrence of the SAME row, English
+    //     title version): the identical forms.gle link glued to an English
+    //     title with zero separator, e.g.
+    //     "https://forms.gle/X9b16pteLh8eg7ZU6English for Understanding...".
+    //     Thai-boundary detection doesn't apply here since both the link
+    //     and the title use Latin letters. Instead we use the fact that
+    //     Google Drive/Forms IDs are random strings that always contain at
+    //     least one digit, while real English title words never contain
+    //     digits - so the LAST digit in the glued run marks the true end
+    //     of the id, and the pure-letter run right after it is the start
+    //     of the title. The lookahead+backreference (\2) makes this an
+    //     "atomic" match so the engine can't backtrack into a false match
+    //     partway through the id (which would otherwise happen because ids
+    //     mix letters and digits); the split is only made when what
+    //     follows is a clean, whole word immediately followed by
+    //     whitespace or the end of the string.
+    cleaned = cleaned.replace(
+      /((?:https?:\/\/|www\.|forms\.gle\/|drive\.google\.com\/|docs\.google\.com\/)(?=([A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]*\d))\2)([A-Za-z]{2,})(?=\s|$)/g,
+      '$1 $3'
+    );
+
+    // 4) Remove URLs, but ONLY when a URL is a WHOLE whitespace-delimited
+    //    token (^...$ anchors on the token itself, not the full string).
+    //    This is the key safety property that the old regex lacked: a
+    //    token is either entirely a URL (and gets removed) or entirely a
+    //    real word (and is always kept in full) - there is no way for this
+    //    to trim, truncate, or partially delete a title word.
+    const urlTokenPattern = /^(?:https?:\/\/|www\.|forms\.gle\/|drive\.google\.com\/|docs\.google\.com\/)[^\s]*$/i;
+    const parts = cleaned.split(/\s+/).filter(function (w) {
+      if (!w) return false;
+      const isUrl = urlTokenPattern.test(w);
+      if (isUrl) console.log('Removed URL token from title:', w);
+      return !isUrl;
+    });
+    cleaned = parts.join(' ').trim();
+
+    // 5) Diagnostic only - never deletes anything. If a URL is still glued
+    //    to text with no space and no recognizable terminator (step 3
+    //    couldn't split it), flag it so the sheet can be fixed at the
+    //    source instead of guessing where the URL ends and the title
+    //    begins.
+    if (/^(?:https?:\/\/|www\.)[^\s]*[A-Za-zก-๙]{4,}/i.test(cleaned)) {
+      console.warn('Possible URL glued to title text with no separator - please check the source row:', rawTitle);
+    }
+
+    console.log('After cleanTitle:', cleaned);
+    return cleaned;
   }
 
   function categoryIndex(category) {
@@ -168,20 +258,55 @@
       const parsed = parseCsv(text);
       if (parsed.length < 2) throw new Error('CSV ว่างหรือไม่มีหัวตาราง');
       const headers = parsed[0].map(function (h) { return h.trim().toLowerCase(); });
+      // --- DEBUG 7: raw headers exactly as parsed from the sheet ---
       console.log('CSV headers:', headers);
+      console.log(headers);
       const idx = {};
       headers.forEach(function (h, i) { idx[h] = i; });
       console.log('CSV column index:', idx);
+      // --- DEBUG 2: which column index "title" was resolved to ---
+      console.log('TITLE COLUMN INDEX:', idx['title']);
 
       const required = ['title', 'author', 'year', 'page', 'description', 'category'];
       for (const r of required) {
         if (idx[r] === undefined) throw new Error('ขาดคอลัมน์: ' + r);
       }
 
+      // CONFIRMED ROOT CAUSE (schema-level): the header row is missing a
+      // name for one or more columns the app actually relies on (e.g.
+      // "fulltext_url"), even though data rows do contain that data in a
+      // trailing column. Because idx['fulltext_url'] ends up undefined,
+      // get('fulltext_url', '#') silently falls back to '#' for every
+      // single row - this is why "ขอตำราฉบับเต็ม" links are broken sheet-wide,
+      // and it's very likely what pushed someone to paste the fulltext_url
+      // value directly into the title cell for row 96 as a workaround.
+      // This can't be safely auto-corrected in code (we'd be guessing which
+      // trailing column is which) - it must be fixed by adding the missing
+      // header name(s) to row 1 of the Google Sheet.
+      const optionalButUsed = ['faculty', 'tags', 'cover_url', 'pdf_url', 'fulltext_url'];
+      const missingOptional = optionalButUsed.filter(function (c) { return idx[c] === undefined; });
+      if (missingOptional.length > 0) {
+        console.error('HEADER SCHEMA MISMATCH: the sheet header row is missing column name(s): ' + missingOptional.join(', ') + '. Data in these columns will not be read correctly (values default to blank/"#"). Add these exact header names to row 1 of the Google Sheet.');
+      }
+
+      let mismatchCount = 0;
+
       BOOKS = parsed.slice(1).map(function (row, rowIndex) {
+        // --- DEBUG 1: raw row exactly as returned by parseCsv(), before
+        //     any column mapping / trimming is applied ---
+        console.log('RAW CSV ROW:', row);
+
+        // --- DEBUG 8: column count vs expected header count, for every row ---
+        console.log('Row:', rowIndex, 'Columns:', row.length, 'Expected:', headers.length);
         if (row.length !== headers.length) {
+          mismatchCount++;
           console.warn('Row ' + rowIndex + ' column count mismatch: expected ' + headers.length + ', got ' + row.length, row);
+          console.warn('MISMATCHED ROW SAMPLE DATA (row ' + rowIndex + '):', JSON.stringify(row));
         }
+
+        // --- DEBUG 2 (cont.): raw value pulled directly from the title column ---
+        console.log('RAW TITLE:', row[idx['title']]);
+
         const get = (col, def) => (idx[col] !== undefined && row[idx[col]] !== undefined) ? row[idx[col]].trim() : def;
         const book = {
           id: String(rowIndex + 1),
@@ -197,9 +322,32 @@
           tags: splitTags(get('tags', '')),
           description: splitDescription(get('description', ''))
         };
+
+        // --- DEBUG 3: the fully-assembled book object ---
+        console.log('BOOK OBJECT:', book);
+
         if (rowIndex < 3) console.log('Parsed book ' + rowIndex + ':', book);
         return book;
-      }).filter(function (b) { return b.title && b.category; });
+      });
+
+      // --- EXTRA DEBUG (not explicitly requested, but directly relevant to
+      //     "บาง title ไม่แสดงเลย"): the final .filter() drops any book whose
+      //     title or category ended up empty/falsy after parsing. If a title
+      //     is missing entirely from the rendered grid, this is the first
+      //     place to check - it means `book.title` or `book.category` was
+      //     falsy at this point, NOT that render logic hid it. ---
+      const droppedBooks = BOOKS.filter(function (b) { return !(b.title && b.category); });
+      if (droppedBooks.length > 0) {
+        console.warn('BOOKS DROPPED BY title/category FILTER (never rendered):', droppedBooks.length);
+        droppedBooks.forEach(function (b) {
+          console.warn('  Dropped book id=' + b.id + ' | title="' + b.title + '" | category="' + b.category + '"');
+        });
+      }
+      BOOKS = BOOKS.filter(function (b) { return b.title && b.category; });
+
+      // --- DEBUG 8 (summary): total number of rows where column count
+      //     didn't match the header count ---
+      console.log('TOTAL COLUMN-COUNT MISMATCHES:', mismatchCount, 'out of', parsed.length - 1, 'rows');
 
       loading = false;
     } catch (e) {
@@ -294,8 +442,12 @@
       return '<img class="book-cover-img" src="' + escapeHtml(book.image) + '" alt="ปกหนังสือ ' + escapeHtml(book.title) + '" loading="lazy">' +
         stampMarkup(book.year);
     }
+    // --- DEBUG 5/6: title value right before and right after cleanTitle() ---
+    console.log('BEFORE CLEAN:', book.title);
+    const cleaned = cleanTitle(book.title);
+    console.log('AFTER CLEAN:', cleaned);
     return '<div class="book-cover-generated cover-cat-' + catIndex + '">' +
-      '<span class="cover-glyph">' + escapeHtml(coverGlyph(cleanTitle(book.title))) + '</span>' +
+      '<span class="cover-glyph">' + escapeHtml(coverGlyph(cleaned)) + '</span>' +
       '</div>' + stampMarkup(book.year);
   }
 
@@ -328,9 +480,15 @@
     emptyState.hidden = true;
 
     bookGrid.innerHTML = pageItems.map(function (book, i) {
+      // --- DEBUG 4: title value as the book card is about to be rendered ---
+      console.log('RENDER TITLE:', book.title);
       const tagsHtml = book.tags.map(function (t) {
         return '<span class="book-tag">' + escapeHtml(t) + '</span>';
       }).join('');
+      // --- DEBUG 5/6: title value right before and right after cleanTitle() ---
+      console.log('BEFORE CLEAN:', book.title);
+      const cardTitle = cleanTitle(book.title);
+      console.log('AFTER CLEAN:', cardTitle);
       return (
         '<article class="book-card" tabindex="0" role="button" ' +
         'aria-label="เปิดรายละเอียด ' + escapeHtml(book.title) + '" ' +
@@ -338,7 +496,7 @@
           '<div class="book-cover">' + bookCoverMarkup(book) + '</div>' +
           '<div class="book-info">' +
             '<span class="book-category-tag">' + escapeHtml(book.category) + '</span>' +
-            '<h3 class="book-title">' + escapeHtml(cleanTitle(book.title)) + '</h3>' +
+            '<h3 class="book-title">' + escapeHtml(cardTitle) + '</h3>' +
             '<p class="book-author">' + escapeHtml(book.author) + '</p>' +
             (book.faculty ? '<p class="book-faculty">' + escapeHtml(book.faculty) + '</p>' : '') +
             '<div class="book-tags-row">' + tagsHtml + '</div>' +
@@ -464,7 +622,7 @@
     modalCover.className = 'modal-cover' + (book.image ? '' : ' cover-cat-' + catIndex);
     modalCover.innerHTML = book.image
       ? '<img src="' + escapeHtml(book.image) + '" alt="ปกหนังสือ ' + escapeHtml(book.title) + '">'
-      : '<span class="cover-glyph">' + escapeHtml(coverGlyph(book.title)) + '</span>';
+      : '<span class="cover-glyph">' + escapeHtml(coverGlyph(cleanTitle(book.title))) + '</span>';
 
     modalEbookLink.href = book.ebookLink || '#';
     modalFulltextLink.href = book.fulltextLink || '#';
@@ -501,9 +659,8 @@
     prevPageBtn.addEventListener('click', function () {
       if (currentPage > 1 && !bookGrid.classList.contains('is-fading')) {
         currentPage--;
-        transitionPage(renderBooks, function () {
-          bookGrid.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        });
+        bookGrid.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        transitionPage(renderBooks);
       }
     });
 
@@ -512,9 +669,8 @@
       const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
       if (currentPage < totalPages && !bookGrid.classList.contains('is-fading')) {
         currentPage++;
-        transitionPage(renderBooks, function () {
-          bookGrid.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        });
+        bookGrid.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        transitionPage(renderBooks);
       }
     });
   }
