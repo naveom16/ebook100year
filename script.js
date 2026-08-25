@@ -174,6 +174,40 @@
     return 'https://drive.google.com/uc?id=' + m[1];
   }
 
+  function sanitizeImageUrl(url) {
+    if (!url || typeof url !== 'string') return '';
+
+    // --- Private/local address detection (PNA / blocked by GitHub Pages) ---
+    // A public HTTPS page cannot load images from RFC1918 / loopback hosts.
+    try {
+      const parsed = new URL(url);
+      const host = parsed.hostname.toLowerCase();
+      const isPrivate =
+        host === 'localhost' ||
+        host === '::1' ||
+        host === '127.0.0.1' ||
+        /^192\.168\./.test(host) ||
+        /^10\./.test(host) ||
+        /^172\.(1[6-9]|2\d|3[01])\./.test(host);
+      if (isPrivate) {
+        console.warn('PRIVATE/LOCAL COVER URL (blocked by browser/PNA, fix the Google Sheet row):', url);
+      }
+    } catch (e) {
+      // not a parseable URL - leave as-is, the <img> will simply fail to load
+    }
+
+    // Percent-encode reserved characters that escapeHtml() does NOT handle,
+    // so a raw URL like ".../file (1).jpg" is safe inside an src attribute.
+    return url
+      .replace(/ /g, '%20')
+      .replace(/\[/g, '%5B')
+      .replace(/\]/g, '%5D')
+      .replace(/\(/g, '%28')
+      .replace(/\)/g, '%29')
+      .replace(/"/g, '%22')
+      .replace(/'/g, '%27');
+  }
+
   function parseCsv(text) {
     const rows = [];
     let row = [];
@@ -316,7 +350,7 @@
           year: get('year', ''),
           pages: get('page', ''),
           category: get('category', ''),
-          image: normalizeDriveUrl(get('cover_url', '')),
+          image: sanitizeImageUrl(normalizeDriveUrl(get('cover_url', ''))),
           ebookLink: get('pdf_url', '#'),
           fulltextLink: get('fulltext_url', '#'),
           tags: splitTags(get('tags', '')),
@@ -325,6 +359,9 @@
 
         // --- DEBUG 3: the fully-assembled book object ---
         console.log('BOOK OBJECT:', book);
+
+        // --- DEBUG 9: the final sanitized/normalized cover URL for this row ---
+        console.log('BOOK IMAGE:', book.image);
 
         if (rowIndex < 3) console.log('Parsed book ' + rowIndex + ':', book);
         return book;
